@@ -1,21 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
 from uuid import UUID
 
-
-class TaskStatus(StrEnum):
-    TODO = "TODO"
-    IN_PROGRESS = "IN_PROGRESS"
-    IN_REVIEW = "IN_REVIEW"
-    DONE = "DONE"
-
-
-class TaskPriority(StrEnum):
-    LOW = "LOW"
-    MEDIUM = "MEDIUM"
-    HIGH = "HIGH"
-    URGENT = "URGENT"
+from app.domain.enums import TaskPriority, TaskStatus
 
 
 @dataclass(slots=True)
