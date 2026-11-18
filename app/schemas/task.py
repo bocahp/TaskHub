@@ -14,7 +14,7 @@ from app.constants.task import (
     TASK_TITLE_MAX_LENGTH,
     TASK_TITLE_MIN_LENGTH,
 )
-from app.domain.task import TaskPriority, TaskStatus
+from app.domain.enums import TaskPriority, TaskStatus
 from app.schemas.base import BaseSchema
 
 
