@@ -1,4 +1,3 @@
-
 from uuid import UUID
 
 import pytest
@@ -157,6 +156,7 @@ async def test_login_rejects_inactive_account(
             password="TestPassword123!",
         )
 
+
 @pytest.mark.anyio
 async def test_refresh_rotates_token_and_rejects_old_token(
     db_session: AsyncSession,
@@ -260,3 +260,62 @@ async def test_refresh_rejects_access_token(
         await service.refresh(refresh_token=access_token)
 
     assert exc_info.value.message == INVALID_REFRESH_TOKEN
+
+
+@pytest.mark.anyio
+async def test_reusing_revoked_refresh_token_revokes_all_user_sessions(
+    db_session: AsyncSession,
+) -> None:
+    service, _, refresh_repository = create_auth_service(db_session)
+
+    user = await service.register(
+        email="reuse-detection@example.com",
+        full_name="Reuse Detection User",
+        password="TestPassword123!",
+    )
+
+    _, first_refresh_token = await service.login(
+        email="reuse-detection@example.com",
+        password="TestPassword123!",
+    )
+
+    _, second_refresh_token = await service.login(
+        email="reuse-detection@example.com",
+        password="TestPassword123!",
+    )
+
+    first_data = decode_token(first_refresh_token)
+    second_data = decode_token(second_refresh_token)
+
+    _, rotated_refresh_token = await service.refresh(
+        refresh_token=first_refresh_token,
+    )
+
+    rotated_data = decode_token(rotated_refresh_token)
+
+    with pytest.raises(UnauthorizedException) as exc_info:
+        await service.refresh(refresh_token=first_refresh_token)
+
+    assert exc_info.value.message == INVALID_REFRESH_TOKEN
+
+    second_record = await refresh_repository.get_by_jti(
+        UUID(second_data["jti"]),
+    )
+
+    rotated_record = await refresh_repository.get_by_jti(
+        UUID(rotated_data["jti"]),
+    )
+
+    first_record = await refresh_repository.get_by_jti(
+        UUID(first_data["jti"]),
+    )
+
+    assert first_record is not None
+    assert first_record.user_id == user.id
+    assert first_record.revoked_at is not None
+
+    assert second_record is not None
+    assert second_record.revoked_at is not None
+
+    assert rotated_record is not None
+    assert rotated_record.revoked_at is not None

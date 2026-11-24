@@ -1,4 +1,3 @@
-
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -151,40 +150,45 @@ class AuthService:
         user_id, jti = self._decode_refresh_token(refresh_token)
 
         try:
-            stored_token = (
-                await self.refresh_token_repository.get_by_jti_for_update(jti)
+            stored_token = await self.refresh_token_repository.get_by_jti_for_update(
+                jti
             )
 
-            if (
-                stored_token is None
-                or stored_token.user_id != user_id
-                or stored_token.revoked_at is not None
-                or stored_token.expires_at <= datetime.now(UTC)
-            ):
+            if stored_token is None or stored_token.user_id != user_id:
                 raise UnauthorizedException(INVALID_REFRESH_TOKEN)
 
-            user = await self.user_repository.get_by_id(user_id)
+            if stored_token.revoked_at is not None:
+                await self.refresh_token_repository.revoke_all_for_user(
+                    user_id,
+                )
+                await self.session.commit()
 
-            if user is None or not user.is_active:
-                raise UnauthorizedException(INVALID_REFRESH_TOKEN)
+            else:
+                if stored_token.expires_at <= datetime.now(UTC):
+                    raise UnauthorizedException(INVALID_REFRESH_TOKEN)
 
-            await self.refresh_token_repository.revoke(stored_token)
+                user = await self.user_repository.get_by_id(user_id)
 
-            new_access_token = create_access_token(user.id)
+                if user is None or not user.is_active:
+                    raise UnauthorizedException(INVALID_REFRESH_TOKEN)
 
-            new_refresh_token, new_jti, new_expires_at = (
-                create_refresh_token(user.id)
-            )
+                await self.refresh_token_repository.revoke(stored_token)
 
-            await self.refresh_token_repository.create_refresh_token(
-                user_id=user.id,
-                jti=new_jti,
-                expires_at=new_expires_at,
-            )
+                new_access_token = create_access_token(user.id)
 
-            await self.session.commit()
+                new_refresh_token, new_jti, new_expires_at = create_refresh_token(
+                    user.id
+                )
 
-            return new_access_token, new_refresh_token
+                await self.refresh_token_repository.create_refresh_token(
+                    user_id=user.id,
+                    jti=new_jti,
+                    expires_at=new_expires_at,
+                )
+
+                await self.session.commit()
+
+                return new_access_token, new_refresh_token
 
         except IntegrityError as exc:
             await self.session.rollback()
@@ -194,12 +198,14 @@ class AuthService:
             await self.session.rollback()
             raise
 
+        raise UnauthorizedException(INVALID_REFRESH_TOKEN)
+
     async def logout(self, *, refresh_token: str) -> None:
         user_id, jti = self._decode_refresh_token(refresh_token)
 
         try:
-            stored_token = (
-                await self.refresh_token_repository.get_by_jti_for_update(jti)
+            stored_token = await self.refresh_token_repository.get_by_jti_for_update(
+                jti
             )
 
             if (

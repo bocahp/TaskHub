@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.exceptions import (
     ConflictException,
+    ForbiddenException,
     NotFoundException,
     UnauthorizedException,
 )
@@ -51,6 +52,17 @@ async def handle_not_found(
     )
 
 
+@app.exception_handler(ForbiddenException)
+async def handle_forbidden(
+    request: Request,
+    exc: ForbiddenException,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=403,
+        content={"detail": exc.message},
+    )
+
+
 @app.exception_handler(ConflictException)
 async def handle_conflict(
     request: Request,
@@ -60,6 +72,7 @@ async def handle_conflict(
         status_code=409,
         content={"detail": exc.message},
     )
+
 
 @app.exception_handler(UnauthorizedException)
 async def handle_unauthorized(

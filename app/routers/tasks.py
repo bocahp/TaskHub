@@ -3,6 +3,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query, status
 
+from app.dependencies.auth import CurrentUser
 from app.dependencies.task import TaskServiceDep
 from app.domain.task import TaskEntity
 from app.schemas.task import TaskCreate, TaskResponse, TaskUpdate
@@ -20,9 +21,11 @@ router = APIRouter(
 )
 async def create_task(
     payload: TaskCreate,
+    current_user: CurrentUser,
     service: TaskServiceDep,
 ) -> TaskEntity:
     return await service.create_task(
+        created_by=current_user.id,
         title=payload.title,
         description=payload.description,
         status=payload.status,
@@ -35,6 +38,7 @@ async def create_task(
     response_model=list[TaskResponse],
 )
 async def list_tasks(
+    current_user: CurrentUser,
     service: TaskServiceDep,
     skip: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
@@ -42,6 +46,8 @@ async def list_tasks(
     return await service.list_tasks(
         skip=skip,
         limit=limit,
+        current_user_id=current_user.id,
+        current_user_role=current_user.role,
     )
 
 
@@ -51,9 +57,14 @@ async def list_tasks(
 )
 async def get_task(
     task_id: UUID,
+    current_user: CurrentUser,
     service: TaskServiceDep,
 ) -> TaskEntity:
-    return await service.get_task(task_id)
+    return await service.get_task(
+        task_id,
+        current_user_id=current_user.id,
+        current_user_role=current_user.role,
+    )
 
 
 @router.patch(
@@ -63,11 +74,17 @@ async def get_task(
 async def update_task(
     task_id: UUID,
     payload: TaskUpdate,
+    current_user: CurrentUser,
     service: TaskServiceDep,
 ) -> TaskEntity:
     changes = payload.model_dump(exclude_unset=True)
 
-    return await service.update_task(task_id, changes)
+    return await service.update_task(
+        task_id,
+        changes,
+        current_user_id=current_user.id,
+        current_user_role=current_user.role,
+    )
 
 
 @router.delete(
@@ -76,6 +93,11 @@ async def update_task(
 )
 async def delete_task(
     task_id: UUID,
+    current_user: CurrentUser,
     service: TaskServiceDep,
 ) -> None:
-    await service.delete_task(task_id)
+    await service.delete_task(
+        task_id,
+        current_user_id=current_user.id,
+        current_user_role=current_user.role,
+    )
