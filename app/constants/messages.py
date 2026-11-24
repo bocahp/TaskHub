@@ -10,3 +10,14 @@ INVALID_CREDENTIALS = "Invalid email or password"
 ACCOUNT_INACTIVE = "User account is inactive"
 INVALID_TOKEN = "Could not validate credentials"
 INVALID_REFRESH_TOKEN = "Invalid or expired refresh token"
+
+WORKSPACE_NOT_FOUND = "Workspace not found"
+WORKSPACE_ACCESS_FORBIDDEN = "You do not have permission to access this workspace"
+WORKSPACE_OWNER_REQUIRED = "Only the workspace owner can perform this action"
+
+WORKSPACE_MEMBER_NOT_FOUND = "Workspace member not found"
+WORKSPACE_MEMBER_ALREADY_EXISTS = "User is already a workspace member"
+WORKSPACE_MEMBER_INACTIVE = "Cannot add an inactive user"
+WORKSPACE_OWNER_PROTECTED = (
+    "The workspace owner cannot be removed or have their role changed"
+)

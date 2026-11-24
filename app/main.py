@@ -17,6 +17,7 @@ from app.routers.database import router as database_router
 from app.routers.health import router as health_router
 from app.routers.tasks import router as tasks_router
 from app.routers.users import router as users_router
+from app.routers.workspaces import router as workspaces_router
 
 
 @asynccontextmanager
@@ -37,6 +38,7 @@ app.state.task_repository = InMemoryTaskRepository()
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(workspaces_router)
 app.include_router(tasks_router)
 app.include_router(database_router)
 
