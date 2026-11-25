@@ -4,9 +4,13 @@ from uuid import UUID
 from fastapi import APIRouter, Query, Response, status
 
 from app.dependencies.auth import CurrentUser
+from app.dependencies.ids import ProjectId, TaskId
+from app.dependencies.pagination import PaginationDep
 from app.dependencies.task import TaskServiceDep
+from app.domain.enums import TaskPriority, TaskStatus
+from app.domain.pagination import PaginatedResult
 from app.models.task import Task
-from app.schemas.task import TaskCreate, TaskResponse, TaskUpdate
+from app.schemas.task import TaskCreate, TaskListResponse, TaskResponse, TaskUpdate
 
 router = APIRouter(
     tags=["Tasks"],
@@ -19,7 +23,7 @@ router = APIRouter(
     status_code=status.HTTP_201_CREATED,
 )
 async def create_task(
-    project_id: UUID,
+    project_id: ProjectId,
     payload: TaskCreate,
     current_user: CurrentUser,
     service: TaskServiceDep,
@@ -30,7 +34,6 @@ async def create_task(
         current_user_role=current_user.role,
         title=payload.title,
         description=payload.description,
-        status=payload.status,
         priority=payload.priority,
         assignee_id=payload.assignee_id,
         due_date=payload.due_date,
@@ -39,21 +42,31 @@ async def create_task(
 
 @router.get(
     "/api/v1/projects/{project_id}/tasks",
-    response_model=list[TaskResponse],
+    response_model=TaskListResponse,
 )
 async def list_tasks(
-    project_id: UUID,
+    project_id: ProjectId,
     current_user: CurrentUser,
     service: TaskServiceDep,
-    offset: Annotated[int, Query(ge=0)] = 0,
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-) -> list[Task]:
+    pagination: PaginationDep,
+    statuses: Annotated[list[TaskStatus] | None, Query(alias="status")] = None,
+    priorities: Annotated[
+        list[TaskPriority] | None,
+        Query(alias="priority"),
+    ] = None,
+    assignee_ids: Annotated[
+        list[UUID] | None,
+        Query(alias="assignee_id"),
+    ] = None,
+) -> PaginatedResult[Task]:
     return await service.list_tasks(
         project_id,
-        offset=offset,
-        limit=limit,
+        pagination=pagination,
         current_user_id=current_user.id,
         current_user_role=current_user.role,
+        statuses=statuses,
+        priorities=priorities,
+        assignee_ids=assignee_ids,
     )
 
 
@@ -62,7 +75,7 @@ async def list_tasks(
     response_model=TaskResponse,
 )
 async def get_task(
-    task_id: UUID,
+    task_id: TaskId,
     current_user: CurrentUser,
     service: TaskServiceDep,
 ) -> Task:
@@ -78,7 +91,7 @@ async def get_task(
     response_model=TaskResponse,
 )
 async def update_task(
-    task_id: UUID,
+    task_id: TaskId,
     payload: TaskUpdate,
     current_user: CurrentUser,
     service: TaskServiceDep,
@@ -98,7 +111,7 @@ async def update_task(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_task(
-    task_id: UUID,
+    task_id: TaskId,
     current_user: CurrentUser,
     service: TaskServiceDep,
 ) -> Response:

@@ -136,6 +136,13 @@ async def test_workspace_api_lifecycle_and_member_management(
 
     workspace_data = create_response.json()
     workspace_id = workspace_data["id"]
+    second_workspace_response = await workspace_client.post(
+        "/api/v1/workspaces",
+        json={"name": "Second Workspace"},
+    )
+
+    assert second_workspace_response.status_code == 201
+    second_workspace_id = second_workspace_response.json()["id"]
 
     assert workspace_data["name"] == "My Workspace"
     assert workspace_data["owner_id"] == str(owner_id)
@@ -147,10 +154,41 @@ async def test_workspace_api_lifecycle_and_member_management(
 
     list_response = await workspace_client.get(
         "/api/v1/workspaces",
+        params={"page": 1, "limit": 1},
     )
 
     assert list_response.status_code == 200
-    assert len(list_response.json()) == 1
+
+    workspace_page_1 = list_response.json()
+
+    assert len(workspace_page_1["items"]) == 1
+    assert workspace_page_1["total"] == 2
+    assert workspace_page_1["page"] == 1
+    assert workspace_page_1["limit"] == 1
+
+    second_page_response = await workspace_client.get(
+        "/api/v1/workspaces",
+        params={"page": 2, "limit": 1},
+    )
+
+    assert second_page_response.status_code == 200
+
+    workspace_page_2 = second_page_response.json()
+
+    assert len(workspace_page_2["items"]) == 1
+    assert workspace_page_2["total"] == 2
+    assert workspace_page_2["page"] == 2
+    assert workspace_page_2["limit"] == 1
+
+    assert workspace_page_1["items"][0]["id"] != workspace_page_2["items"][0]["id"]
+
+    assert {
+        workspace_page_1["items"][0]["id"],
+        workspace_page_2["items"][0]["id"],
+    } == {
+        workspace_id,
+        second_workspace_id,
+    }
 
     update_response = await workspace_client.patch(
         f"/api/v1/workspaces/{workspace_id}",
@@ -174,10 +212,35 @@ async def test_workspace_api_lifecycle_and_member_management(
 
     members_response = await workspace_client.get(
         f"/api/v1/workspaces/{workspace_id}/members",
+        params={"page": 1, "limit": 1},
     )
 
     assert members_response.status_code == 200
-    assert len(members_response.json()) == 2
+
+    members_page_1 = members_response.json()
+
+    assert len(members_page_1["items"]) == 1
+    assert members_page_1["total"] == 2
+    assert members_page_1["page"] == 1
+    assert members_page_1["limit"] == 1
+
+    second_members_response = await workspace_client.get(
+        f"/api/v1/workspaces/{workspace_id}/members",
+        params={"page": 2, "limit": 1},
+    )
+
+    assert second_members_response.status_code == 200
+
+    members_page_2 = second_members_response.json()
+
+    assert len(members_page_2["items"]) == 1
+    assert members_page_2["total"] == 2
+    assert members_page_2["page"] == 2
+    assert members_page_2["limit"] == 1
+
+    assert (
+        members_page_1["items"][0]["user_id"] != members_page_2["items"][0]["user_id"]
+    )
 
     update_member_response = await workspace_client.patch(
         f"/api/v1/workspaces/{workspace_id}/members/{member_id}",
@@ -198,7 +261,10 @@ async def test_workspace_api_lifecycle_and_member_management(
     )
 
     assert members_response.status_code == 200
-    assert len(members_response.json()) == 1
+    assert len(members_response.json()["items"]) == 1
+    assert members_response.json()["total"] == 1
+    assert members_response.json()["page"] == 1
+    assert members_response.json()["limit"] == 20
 
     delete_response = await workspace_client.delete(
         f"/api/v1/workspaces/{workspace_id}",

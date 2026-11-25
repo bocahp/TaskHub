@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Self
 from uuid import UUID
 
@@ -11,11 +11,26 @@ from pydantic import (
 
 from app.constants.task import (
     TASK_DESCRIPTION_MAX_LENGTH,
+    TASK_DUE_DATE_MUST_BE_FUTURE,
+    TASK_DUE_DATE_TIMEZONE_REQUIRED,
     TASK_TITLE_MAX_LENGTH,
     TASK_TITLE_MIN_LENGTH,
 )
 from app.domain.enums import TaskPriority, TaskStatus
 from app.schemas.base import BaseSchema
+
+
+def validate_due_date(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+
+    if value.utcoffset() is None:
+        raise ValueError(TASK_DUE_DATE_TIMEZONE_REQUIRED)
+
+    if value <= datetime.now(UTC):
+        raise ValueError(TASK_DUE_DATE_MUST_BE_FUTURE)
+
+    return value
 
 
 class TaskCreate(BaseSchema):
@@ -29,7 +44,6 @@ class TaskCreate(BaseSchema):
         max_length=TASK_DESCRIPTION_MAX_LENGTH,
     )
 
-    status: TaskStatus = TaskStatus.TODO
     priority: TaskPriority = TaskPriority.MEDIUM
 
     assignee_id: UUID | None = None
@@ -37,14 +51,11 @@ class TaskCreate(BaseSchema):
 
     @field_validator("due_date")
     @classmethod
-    def validate_due_date_timezone(
+    def validate_due_date_field(
         cls,
         value: datetime | None,
     ) -> datetime | None:
-        if value is not None and value.utcoffset() is None:
-            raise ValueError("due_date must include a timezone")
-
-        return value
+        return validate_due_date(value)
 
 
 class TaskUpdate(BaseSchema):
@@ -81,14 +92,11 @@ class TaskUpdate(BaseSchema):
 
     @field_validator("due_date")
     @classmethod
-    def validate_due_date_timezone(
+    def validate_due_date_field(
         cls,
         value: datetime | None,
     ) -> datetime | None:
-        if value is not None and value.utcoffset() is None:
-            raise ValueError("due_date must include a timezone")
-
-        return value
+        return validate_due_date(value)
 
 
 class TaskResponse(BaseSchema):
@@ -104,3 +112,12 @@ class TaskResponse(BaseSchema):
     priority: TaskPriority
     due_date: datetime | None
     created_at: datetime
+
+
+class TaskListResponse(BaseSchema):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[TaskResponse]
+    total: int
+    page: int
+    limit: int

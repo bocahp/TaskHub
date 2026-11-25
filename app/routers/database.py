@@ -1,7 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.constants.messages import DATABASE_UNAVAILABLE
+from app.core.exceptions import ServiceUnavailableException
 from app.dependencies.database import DbSession
 
 router = APIRouter(
@@ -17,10 +19,7 @@ async def check_database(
     try:
         await session.execute(text("SELECT 1"))
     except SQLAlchemyError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="Database unavailable",
-        ) from exc
+        raise ServiceUnavailableException(DATABASE_UNAVAILABLE) from exc
 
     return {
         "status": "ok",

@@ -1,9 +1,10 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.enums import WorkspaceRole
+from app.domain.pagination import PaginatedResult, PaginationParams
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
@@ -42,28 +43,28 @@ class SQLAlchemyWorkspaceRepository(BaseRepository[Workspace]):
 
         return result.one_or_none()
 
-    async def list_for_user(
+    async def paginate_for_user(
         self,
         user_id: UUID,
         *,
-        offset: int = 0,
-        limit: int = 20,
-    ) -> list[Workspace]:
-        statement = (
-            select(Workspace)
-            .join(
-                WorkspaceMember,
-                WorkspaceMember.workspace_id == Workspace.id,
-            )
-            .where(WorkspaceMember.user_id == user_id)
-            .order_by(Workspace.created_at.desc(), Workspace.id)
-            .offset(offset)
-            .limit(limit)
+        pagination: PaginationParams,
+    ) -> PaginatedResult[Workspace]:
+        filters = (
+            Workspace.id.in_(
+                select(WorkspaceMember.workspace_id).where(
+                    WorkspaceMember.user_id == user_id,
+                )
+            ),
         )
 
-        result = await self.session.scalars(statement)
-
-        return list(result.all())
+        return await self.paginate(
+            pagination=pagination,
+            order_by=(
+                Workspace.created_at.desc(),
+                Workspace.id.asc(),
+            ),
+            filters=filters,
+        )
 
     async def get_membership(
         self,
@@ -79,20 +80,39 @@ class SQLAlchemyWorkspaceRepository(BaseRepository[Workspace]):
 
         return result.one_or_none()
 
-    async def list_members(
+    async def paginate_members(
         self,
         workspace_id: UUID,
-    ) -> list[tuple[WorkspaceMember, User]]:
+        *,
+        pagination: PaginationParams,
+    ) -> PaginatedResult[tuple[WorkspaceMember, User]]:
+        count_statement = (
+            select(func.count())
+            .select_from(WorkspaceMember)
+            .where(WorkspaceMember.workspace_id == workspace_id)
+        )
+
+        total = await self.session.scalar(count_statement)
+
         statement = (
             select(WorkspaceMember, User)
             .join(User, User.id == WorkspaceMember.user_id)
             .where(WorkspaceMember.workspace_id == workspace_id)
-            .order_by(User.full_name, User.id)
+            .order_by(User.full_name.asc(), User.id.asc())
+            .offset(pagination.offset)
+            .limit(pagination.limit)
         )
 
         result = await self.session.execute(statement)
 
-        return [(membership, user) for membership, user in result]
+        items = [(membership, user) for membership, user in result]
+
+        return PaginatedResult(
+            items=items,
+            total=total or 0,
+            page=pagination.page,
+            limit=pagination.limit,
+        )
 
     async def create_membership(
         self,

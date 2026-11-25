@@ -9,6 +9,7 @@ from app.core.exceptions import (
     ConflictException,
     ForbiddenException,
     NotFoundException,
+    UnprocessableEntityException,
 )
 from app.domain.enums import (
     ProjectStatus,
@@ -16,6 +17,7 @@ from app.domain.enums import (
     UserRole,
     WorkspaceRole,
 )
+from app.domain.pagination import PaginationParams
 from app.models.project import Project
 from app.models.task import Task
 from app.models.user import User
@@ -183,14 +185,16 @@ async def test_service_lists_tasks_with_offset_and_limit(
 
     result = await service.list_tasks(
         project_id,
-        offset=1,
-        limit=1,
         current_user_id=user_id,
         current_user_role=UserRole.MEMBER,
+        pagination=PaginationParams(page=2, limit=1),
     )
 
-    assert len(result) == 1
-    assert result[0].project_id == project_id
+    assert len(result.items) == 1
+    assert result.total == 3
+    assert result.page == 2
+    assert result.limit == 1
+    assert result.items[0].project_id == project_id
 
 
 @pytest.mark.anyio
@@ -292,10 +296,11 @@ async def test_viewer_cannot_modify_workspace_tasks(
         project_id,
         current_user_id=viewer_id,
         current_user_role=UserRole.MEMBER,
+        pagination=PaginationParams(page=1, limit=20),
     )
 
     assert visible_task.id == task_id
-    assert len(visible_tasks) == 1
+    assert len(visible_tasks.items) == 1
 
     with pytest.raises(ForbiddenException):
         if operation == "create":
@@ -339,19 +344,39 @@ async def test_non_member_cannot_access_project_tasks(
     outsider = await create_user(db_session)
     outsider_id = outsider.id
 
-    with pytest.raises(ForbiddenException):
+    with pytest.raises(NotFoundException) as task_access_error:
         await service.get_task(
             task_id,
             current_user_id=outsider_id,
             current_user_role=UserRole.MEMBER,
         )
 
-    with pytest.raises(ForbiddenException):
+    with pytest.raises(NotFoundException) as task_missing_error:
+        await service.get_task(
+            UUID(int=0),
+            current_user_id=outsider_id,
+            current_user_role=UserRole.MEMBER,
+        )
+
+    assert task_access_error.value.message == task_missing_error.value.message
+
+    with pytest.raises(NotFoundException) as project_access_error:
         await service.list_tasks(
             project_id,
             current_user_id=outsider_id,
             current_user_role=UserRole.MEMBER,
+            pagination=PaginationParams(page=1, limit=20),
         )
+
+    with pytest.raises(NotFoundException) as project_missing_error:
+        await service.list_tasks(
+            UUID(int=0),
+            current_user_id=outsider_id,
+            current_user_role=UserRole.MEMBER,
+            pagination=PaginationParams(page=1, limit=20),
+        )
+
+    assert project_access_error.value.message == project_missing_error.value.message
 
 
 @pytest.mark.anyio
@@ -380,9 +405,10 @@ async def test_admin_can_manage_tasks_without_workspace_membership(
         project_id,
         current_user_id=admin_id,
         current_user_role=UserRole.ADMIN,
+        pagination=PaginationParams(page=1, limit=20),
     )
 
-    assert len(visible_tasks) == 1
+    assert len(visible_tasks.items) == 1
 
     updated_task = await service.update_task(
         task_id,
@@ -411,7 +437,7 @@ async def test_assignee_must_belong_to_project_workspace(
     outsider = await create_user(db_session)
     outsider_id = outsider.id
 
-    with pytest.raises(ConflictException):
+    with pytest.raises(UnprocessableEntityException):
         await service.create_task(
             project_id=project_id,
             current_user_id=owner_id,
@@ -523,10 +549,11 @@ async def test_archived_project_rejects_task_modifications(
         project_id,
         current_user_id=owner_id,
         current_user_role=UserRole.MEMBER,
+        pagination=PaginationParams(page=1, limit=20),
     )
 
     assert visible_task.id == task_id
-    assert len(visible_tasks) == 1
+    assert len(visible_tasks.items) == 1
 
     with pytest.raises(ConflictException):
         if operation == "create":

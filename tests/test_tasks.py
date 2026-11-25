@@ -103,12 +103,12 @@ async def test_owner_can_create_list_update_and_delete_task(
         json={
             "title": "Learn FastAPI",
             "description": "Practice SQLAlchemy CRUD",
-            "status": "TODO",
             "priority": "HIGH",
         },
     )
 
     assert create_response.status_code == 201
+    assert create_response.json()["status"] == "TODO"
 
     data = create_response.json()
     task_id = data["id"]
@@ -124,7 +124,10 @@ async def test_owner_can_create_list_update_and_delete_task(
     )
 
     assert list_response.status_code == 200
-    assert len(list_response.json()) == 1
+    assert len(list_response.json()["items"]) == 1
+    assert list_response.json()["total"] == 1
+    assert list_response.json()["page"] == 1
+    assert list_response.json()["limit"] == 20
 
     get_response = await task_client.get(
         f"/api/v1/tasks/{task_id}",
@@ -275,8 +278,22 @@ async def test_non_member_cannot_access_task(
         f"/api/v1/projects/{project_id}/tasks",
     )
 
-    assert get_response.status_code == 403
-    assert list_response.status_code == 403
+    assert get_response.status_code == 404
+    assert list_response.status_code == 404
+
+    missing_task_response = await task_client.get(
+        "/api/v1/tasks/00000000-0000-0000-0000-000000000000",
+    )
+
+    missing_project_response = await task_client.get(
+        "/api/v1/projects/00000000-0000-0000-0000-000000000000/tasks",
+    )
+
+    assert get_response.status_code == missing_task_response.status_code == 404
+    assert get_response.json() == missing_task_response.json()
+
+    assert list_response.status_code == missing_project_response.status_code == 404
+    assert list_response.json() == missing_project_response.json()
 
 
 @pytest.mark.anyio
@@ -370,7 +387,7 @@ async def test_task_assignee_must_be_workspace_member(
         },
     )
 
-    assert invalid_response.status_code == 409
+    assert invalid_response.status_code == 422
 
 
 @pytest.mark.anyio
@@ -506,3 +523,122 @@ async def test_archived_project_rejects_task_modifications(
     assert create_archived_response.status_code == 409
     assert update_archived_response.status_code == 409
     assert delete_archived_response.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_task_list_filters_and_paginates(
+    task_client: AsyncClient,
+    task_context: tuple[UUID, UUID],
+) -> None:
+    project_id, owner_id = task_context
+
+    authenticate_as(owner_id)
+
+    task_cases = [
+        ("Matching IN_PROGRESS", "HIGH", owner_id, "IN_PROGRESS"),
+        ("Matching DONE", "HIGH", owner_id, "DONE"),
+        ("Wrong status", "HIGH", owner_id, "TODO"),
+        ("Wrong priority", "LOW", owner_id, "DONE"),
+        ("Unassigned task", "HIGH", None, "DONE"),
+    ]
+
+    for title, priority, assignee_id, task_status in task_cases:
+        create_response = await task_client.post(
+            f"/api/v1/projects/{project_id}/tasks",
+            json={
+                "title": title,
+                "priority": priority,
+                "assignee_id": str(assignee_id) if assignee_id else None,
+            },
+        )
+
+        assert create_response.status_code == 201
+
+        task_id = create_response.json()["id"]
+
+        if task_status != "TODO":
+            update_response = await task_client.patch(
+                f"/api/v1/tasks/{task_id}",
+                json={"status": task_status},
+            )
+
+            assert update_response.status_code == 200
+
+    filters = [
+        ("status", "IN_PROGRESS"),
+        ("status", "DONE"),
+        ("priority", "HIGH"),
+        ("assignee_id", str(owner_id)),
+    ]
+
+    list_response = await task_client.get(
+        f"/api/v1/projects/{project_id}/tasks",
+        params=[*filters, ("page", "1"), ("limit", "1")],
+    )
+
+    assert list_response.status_code == 200
+
+    data = list_response.json()
+
+    assert len(data["items"]) == 1
+    assert data["total"] == 2
+    assert data["page"] == 1
+    assert data["limit"] == 1
+
+    assert {item["title"] for item in data["items"]} <= {
+        "Matching IN_PROGRESS",
+        "Matching DONE",
+    }
+
+    second_page_response = await task_client.get(
+        f"/api/v1/projects/{project_id}/tasks",
+        params=[*filters, ("page", "2"), ("limit", "1")],
+    )
+
+    assert second_page_response.status_code == 200
+
+    second_page = second_page_response.json()
+
+    assert len(second_page["items"]) == 1
+    assert second_page["total"] == 2
+    assert second_page["page"] == 2
+    assert second_page["limit"] == 1
+
+    assert data["items"][0]["id"] != second_page["items"][0]["id"]
+
+    assert {
+        data["items"][0]["title"],
+        second_page["items"][0]["title"],
+    } == {
+        "Matching IN_PROGRESS",
+        "Matching DONE",
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"page": 0},
+        {"limit": 0},
+        {"limit": 101},
+        {"status": "INVALID"},
+        {"priority": "INVALID"},
+        {"assignee_id": "not-a-uuid"},
+    ],
+)
+async def test_task_list_rejects_invalid_query_parameters(
+    task_client: AsyncClient,
+    task_context: tuple[UUID, UUID],
+    params: dict[str, str | int],
+) -> None:
+    project_id, owner_id = task_context
+
+    authenticate_as(owner_id)
+
+    response = await task_client.get(
+        f"/api/v1/projects/{project_id}/tasks",
+        params=params,
+    )
+
+    assert response.status_code == 422

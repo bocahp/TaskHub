@@ -2,3 +2,6 @@ TASK_TITLE_MIN_LENGTH = 1
 TASK_TITLE_MAX_LENGTH = 200
 
 TASK_DESCRIPTION_MAX_LENGTH = 2000
+
+TASK_DUE_DATE_TIMEZONE_REQUIRED = "due_date must include a timezone"
+TASK_DUE_DATE_MUST_BE_FUTURE = "due_date must be in the future"

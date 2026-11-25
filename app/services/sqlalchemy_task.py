@@ -1,4 +1,4 @@
-from collections.abc import Awaitable, Mapping
+from collections.abc import Awaitable, Mapping, Sequence
 from datetime import datetime
 from typing import cast
 from uuid import UUID
@@ -14,12 +14,12 @@ from app.constants.messages import (
     TASK_MODIFICATION_FORBIDDEN,
     TASK_NOT_FOUND,
     USER_NOT_FOUND,
-    WORKSPACE_ACCESS_FORBIDDEN,
 )
 from app.core.exceptions import (
     ConflictException,
     ForbiddenException,
     NotFoundException,
+    UnprocessableEntityException,
 )
 from app.domain.enums import (
     ProjectStatus,
@@ -28,8 +28,10 @@ from app.domain.enums import (
     UserRole,
     WorkspaceRole,
 )
+from app.domain.pagination import PaginatedResult, PaginationParams
 from app.models.project import Project
 from app.models.task import Task
+from app.models.workspace_member import WorkspaceMember
 from app.repositories.sqlalchemy_task import SQLAlchemyTaskRepository
 
 
@@ -52,22 +54,6 @@ class SQLAlchemyTaskService:
             await self.repository.session.rollback()
             raise
 
-    async def _get_project(self, project_id: UUID) -> Project:
-        project = await self.repository.get_project(project_id)
-
-        if project is None:
-            raise NotFoundException(PROJECT_NOT_FOUND)
-
-        return project
-
-    async def _get_task(self, task_id: UUID) -> Task:
-        task = await self.repository.get_by_id(task_id)
-
-        if task is None:
-            raise NotFoundException(TASK_NOT_FOUND)
-
-        return task
-
     async def _require_active_user(self, user_id: UUID) -> None:
         user = await self.repository.get_user(user_id)
 
@@ -77,24 +63,48 @@ class SQLAlchemyTaskService:
         if not user.is_active:
             raise ConflictException(ACCOUNT_INACTIVE)
 
-    async def _require_project_access(
+    async def _get_project_access_context(
         self,
         project_id: UUID,
-        current_user_id: UUID,
+        user_id: UUID,
+    ) -> tuple[Project, WorkspaceMember | None]:
+        context = await self.repository.get_project_access_context(
+            project_id,
+            user_id,
+        )
+
+        if context is None:
+            raise NotFoundException(PROJECT_NOT_FOUND)
+
+        return context
+
+    async def _get_task_access_context(
+        self,
+        task_id: UUID,
+        user_id: UUID,
+    ) -> tuple[Task, Project, WorkspaceMember | None]:
+        context = await self.repository.get_task_access_context(
+            task_id,
+            user_id,
+        )
+
+        if context is None:
+            raise NotFoundException(TASK_NOT_FOUND)
+
+        return context
+
+    @staticmethod
+    def _authorize_project_access(
+        project: Project,
+        membership: WorkspaceMember | None,
         current_user_role: UserRole,
         *,
         write: bool = False,
-    ) -> Project:
-        project = await self._get_project(project_id)
-
+        not_found_message: str = PROJECT_NOT_FOUND,
+    ) -> None:
         if current_user_role != UserRole.ADMIN:
-            membership = await self.repository.get_workspace_membership(
-                project_id,
-                current_user_id,
-            )
-
             if membership is None:
-                raise ForbiddenException(WORKSPACE_ACCESS_FORBIDDEN)
+                raise NotFoundException(not_found_message)
 
             if write and membership.role not in (
                 WorkspaceRole.OWNER,
@@ -104,8 +114,6 @@ class SQLAlchemyTaskService:
 
         if write and project.status != ProjectStatus.ACTIVE:
             raise ConflictException(PROJECT_ARCHIVED)
-
-        return project
 
     async def _validate_assignee(
         self,
@@ -120,7 +128,7 @@ class SQLAlchemyTaskService:
         )
 
         if membership is None:
-            raise ConflictException(TASK_ASSIGNEE_NOT_MEMBER)
+            raise UnprocessableEntityException(TASK_ASSIGNEE_NOT_MEMBER)
 
     async def create_task(
         self,
@@ -130,20 +138,25 @@ class SQLAlchemyTaskService:
         current_user_role: UserRole,
         title: str,
         description: str | None = None,
-        status: TaskStatus = TaskStatus.TODO,
         priority: TaskPriority = TaskPriority.MEDIUM,
         assignee_id: UUID | None = None,
         due_date: datetime | None = None,
     ) -> Task:
         async def operation() -> Task:
-            await self._require_project_access(
+            project, membership = await self._get_project_access_context(
                 project_id,
                 current_user_id,
+            )
+
+            self._authorize_project_access(
+                project,
+                membership,
                 current_user_role,
                 write=True,
             )
 
-            await self._require_active_user(current_user_id)
+            if assignee_id is not None:
+                await self._validate_assignee(project_id, assignee_id)
 
             if assignee_id is not None:
                 await self._validate_assignee(project_id, assignee_id)
@@ -153,7 +166,7 @@ class SQLAlchemyTaskService:
                 created_by=current_user_id,
                 title=title,
                 description=description,
-                status=status,
+                status=TaskStatus.TODO,
                 priority=priority,
                 assignee_id=assignee_id,
                 due_date=due_date,
@@ -168,12 +181,16 @@ class SQLAlchemyTaskService:
         current_user_id: UUID,
         current_user_role: UserRole,
     ) -> Task:
-        task = await self._get_task(task_id)
-
-        await self._require_project_access(
-            task.project_id,
+        task, project, membership = await self._get_task_access_context(
+            task_id,
             current_user_id,
+        )
+
+        self._authorize_project_access(
+            project,
+            membership,
             current_user_role,
+            not_found_message=TASK_NOT_FOUND,
         )
 
         return task
@@ -182,21 +199,30 @@ class SQLAlchemyTaskService:
         self,
         project_id: UUID,
         *,
-        offset: int = 0,
-        limit: int = 20,
+        pagination: PaginationParams,
         current_user_id: UUID,
         current_user_role: UserRole,
-    ) -> list[Task]:
-        await self._require_project_access(
+        statuses: Sequence[TaskStatus] | None = None,
+        priorities: Sequence[TaskPriority] | None = None,
+        assignee_ids: Sequence[UUID] | None = None,
+    ) -> PaginatedResult[Task]:
+        project, membership = await self._get_project_access_context(
             project_id,
             current_user_id,
+        )
+
+        self._authorize_project_access(
+            project,
+            membership,
             current_user_role,
         )
 
-        return await self.repository.list_by_project(
+        return await self.repository.paginate_by_project(
             project_id,
-            offset=offset,
-            limit=limit,
+            pagination=pagination,
+            statuses=statuses,
+            priorities=priorities,
+            assignee_ids=assignee_ids,
         )
 
     async def update_task(
@@ -208,13 +234,17 @@ class SQLAlchemyTaskService:
         current_user_role: UserRole,
     ) -> Task:
         async def operation() -> Task:
-            task = await self._get_task(task_id)
-
-            await self._require_project_access(
-                task.project_id,
+            task, project, membership = await self._get_task_access_context(
+                task_id,
                 current_user_id,
+            )
+
+            self._authorize_project_access(
+                project,
+                membership,
                 current_user_role,
                 write=True,
+                not_found_message=TASK_NOT_FOUND,
             )
 
             if "assignee_id" in changes:
@@ -261,13 +291,17 @@ class SQLAlchemyTaskService:
         current_user_role: UserRole,
     ) -> None:
         async def operation() -> None:
-            task = await self._get_task(task_id)
-
-            await self._require_project_access(
-                task.project_id,
+            task, project, membership = await self._get_task_access_context(
+                task_id,
                 current_user_id,
+            )
+
+            self._authorize_project_access(
+                project,
+                membership,
                 current_user_role,
                 write=True,
+                not_found_message=TASK_NOT_FOUND,
             )
 
             await self.repository.delete(task)

@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.enums import WorkspaceRole
+from app.domain.pagination import PaginationParams
 from app.models.project import Project
 from app.models.user import User
 from app.repositories.sqlalchemy_workspace import (
@@ -51,14 +52,26 @@ async def test_list_workspaces_for_user(
 
     assert project is not None
 
-    workspaces = await repository.list_for_user(user_id)
+    pagination = PaginationParams(page=1, limit=20)
 
-    assert len(workspaces) == 1
-    assert workspaces[0].id == project.workspace_id
+    workspaces = await repository.paginate_for_user(
+        user_id,
+        pagination=pagination,
+    )
 
-    unrelated_workspaces = await repository.list_for_user(uuid4())
+    assert len(workspaces.items) == 1
+    assert workspaces.items[0].id == project.workspace_id
+    assert workspaces.total == 1
+    assert workspaces.page == 1
+    assert workspaces.limit == 20
 
-    assert unrelated_workspaces == []
+    unrelated_workspaces = await repository.paginate_for_user(
+        uuid4(),
+        pagination=pagination,
+    )
+
+    assert unrelated_workspaces.items == []
+    assert unrelated_workspaces.total == 0
 
 
 @pytest.mark.anyio
@@ -88,11 +101,17 @@ async def test_get_workspace_and_list_members(
     assert membership is not None
     assert membership.role == WorkspaceRole.OWNER
 
-    members = await repository.list_members(workspace.id)
+    members = await repository.paginate_members(
+        workspace.id,
+        pagination=PaginationParams(page=1, limit=20),
+    )
 
-    assert len(members) == 1
+    assert len(members.items) == 1
+    assert members.total == 1
+    assert members.page == 1
+    assert members.limit == 20
 
-    member, member_user = members[0]
+    member, member_user = members.items[0]
 
     assert member.user_id == user_id
     assert member_user.id == user_id

@@ -26,3 +26,5 @@ TASK_MODIFICATION_FORBIDDEN = (
 )
 PROJECT_ARCHIVED = "Cannot modify tasks in an archived project"
 TASK_ASSIGNEE_NOT_MEMBER = "The assignee must be a member of the project's workspace"
+
+DATABASE_UNAVAILABLE = "Database unavailable"

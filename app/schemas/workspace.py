@@ -66,3 +66,21 @@ class WorkspaceMemberResponse(BaseSchema):
     email: EmailStr
     full_name: str
     role: WorkspaceRole
+
+
+class WorkspaceListResponse(BaseSchema):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[WorkspaceResponse]
+    total: int
+    page: int
+    limit: int
+
+
+class WorkspaceMemberListResponse(BaseSchema):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[WorkspaceMemberResponse]
+    total: int
+    page: int
+    limit: int

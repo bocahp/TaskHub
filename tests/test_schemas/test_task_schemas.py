@@ -13,7 +13,6 @@ def test_task_create_normalizes_title_and_uses_defaults() -> None:
 
     assert payload.title == "Learn FastAPI"
     assert payload.description is None
-    assert payload.status == TaskStatus.TODO
     assert payload.priority == TaskPriority.MEDIUM
     assert payload.assignee_id is None
     assert payload.due_date is None
@@ -26,7 +25,6 @@ def test_task_create_accepts_optional_fields() -> None:
     payload = TaskCreate(
         title="Implement authentication",
         description="Add JWT authentication",
-        status=TaskStatus.IN_PROGRESS,
         priority=TaskPriority.HIGH,
         assignee_id=assignee_id,
         due_date=due_date,
@@ -34,8 +32,17 @@ def test_task_create_accepts_optional_fields() -> None:
 
     assert payload.assignee_id == assignee_id
     assert payload.due_date == due_date
-    assert payload.status == TaskStatus.IN_PROGRESS
     assert payload.priority == TaskPriority.HIGH
+
+
+def test_task_create_rejects_client_supplied_status() -> None:
+    with pytest.raises(ValidationError):
+        TaskCreate.model_validate(
+            {
+                "title": "New task",
+                "status": "IN_PROGRESS",
+            }
+        )
 
 
 def test_task_create_rejects_blank_title() -> None:
@@ -171,5 +178,21 @@ def test_task_schema_rejects_naive_due_date(
             {
                 "title": "Task with naive datetime",
                 "due_date": "2026-12-01T09:00:00",
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [TaskCreate, TaskUpdate],
+)
+def test_task_schema_rejects_past_due_date(
+    schema: type[TaskCreate] | type[TaskUpdate],
+) -> None:
+    with pytest.raises(ValidationError):
+        schema.model_validate(
+            {
+                "title": "Task with past due date",
+                "due_date": "2020-01-01T09:00:00Z",
             }
         )

@@ -1,12 +1,13 @@
+from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
-from app.constants.database import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
 from app.domain.enums import TaskPriority, TaskStatus
-from app.domain.pagination import PaginatedResult
+from app.domain.pagination import PaginatedResult, PaginationParams
 from app.models.project import Project
 from app.models.task import Task
 from app.models.user import User
@@ -54,6 +55,60 @@ class SQLAlchemyTaskRepository(BaseRepository[Task]):
 
         return result.one_or_none()
 
+    async def get_project_access_context(
+        self,
+        project_id: UUID,
+        user_id: UUID,
+    ) -> tuple[Project, WorkspaceMember | None] | None:
+        statement = (
+            select(Project, WorkspaceMember)
+            .outerjoin(
+                WorkspaceMember,
+                (WorkspaceMember.workspace_id == Project.workspace_id)
+                & (WorkspaceMember.user_id == user_id),
+            )
+            .where(Project.id == project_id)
+        )
+
+        result = await self.session.execute(statement)
+        row = result.one_or_none()
+
+        if row is None:
+            return None
+
+        project, membership = row
+
+        return project, membership
+
+    async def get_task_access_context(
+        self,
+        task_id: UUID,
+        user_id: UUID,
+    ) -> tuple[Task, Project, WorkspaceMember | None] | None:
+        statement = (
+            select(Task, Project, WorkspaceMember)
+            .join(
+                Project,
+                Project.id == Task.project_id,
+            )
+            .outerjoin(
+                WorkspaceMember,
+                (WorkspaceMember.workspace_id == Project.workspace_id)
+                & (WorkspaceMember.user_id == user_id),
+            )
+            .where(Task.id == task_id)
+        )
+
+        result = await self.session.execute(statement)
+        row = result.one_or_none()
+
+        if row is None:
+            return None
+
+        task, project, membership = row
+
+        return task, project, membership
+
     async def create_task(
         self,
         *,
@@ -79,47 +134,33 @@ class SQLAlchemyTaskRepository(BaseRepository[Task]):
             }
         )
 
-    async def list_by_project(
-        self,
-        project_id: UUID,
-        *,
-        offset: int = 0,
-        limit: int = DEFAULT_PAGE_SIZE,
-    ) -> list[Task]:
-        statement = (
-            select(Task)
-            .where(Task.project_id == project_id)
-            .order_by(Task.created_at.desc(), Task.id.asc())
-            .offset(offset)
-            .limit(limit)
-        )
-
-        result = await self.session.scalars(statement)
-
-        return list(result.all())
-
     async def paginate_by_project(
         self,
         project_id: UUID,
         *,
-        page: int = DEFAULT_PAGE,
-        limit: int = DEFAULT_PAGE_SIZE,
+        pagination: PaginationParams,
+        statuses: Sequence[TaskStatus] | None = None,
+        priorities: Sequence[TaskPriority] | None = None,
+        assignee_ids: Sequence[UUID] | None = None,
     ) -> PaginatedResult[Task]:
-        count_statement = (
-            select(func.count()).select_from(Task).where(Task.project_id == project_id)
-        )
+        filters: list[ColumnElement[bool]] = [
+            Task.project_id == project_id,
+        ]
 
-        total = await self.session.scalar(count_statement)
+        if statuses is not None:
+            filters.append(Task.status.in_(statuses))
 
-        items = await self.list_by_project(
-            project_id,
-            offset=(page - 1) * limit,
-            limit=limit,
-        )
+        if priorities is not None:
+            filters.append(Task.priority.in_(priorities))
 
-        return PaginatedResult(
-            items=items,
-            total=total or 0,
-            page=page,
-            limit=limit,
+        if assignee_ids is not None:
+            filters.append(Task.assignee_id.in_(assignee_ids))
+
+        return await self.paginate(
+            pagination=pagination,
+            order_by=(
+                Task.created_at.desc(),
+                Task.id.asc(),
+            ),
+            filters=filters,
         )
