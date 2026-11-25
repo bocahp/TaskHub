@@ -32,6 +32,20 @@ class TaskCreate(BaseSchema):
     status: TaskStatus = TaskStatus.TODO
     priority: TaskPriority = TaskPriority.MEDIUM
 
+    assignee_id: UUID | None = None
+    due_date: datetime | None = None
+
+    @field_validator("due_date")
+    @classmethod
+    def validate_due_date_timezone(
+        cls,
+        value: datetime | None,
+    ) -> datetime | None:
+        if value is not None and value.utcoffset() is None:
+            raise ValueError("due_date must include a timezone")
+
+        return value
+
 
 class TaskUpdate(BaseSchema):
     title: str | None = Field(
@@ -47,6 +61,8 @@ class TaskUpdate(BaseSchema):
 
     status: TaskStatus | None = None
     priority: TaskPriority | None = None
+    assignee_id: UUID | None = None
+    due_date: datetime | None = None
 
     @field_validator("title", "status", "priority", mode="before")
     @classmethod
@@ -63,13 +79,28 @@ class TaskUpdate(BaseSchema):
 
         return self
 
+    @field_validator("due_date")
+    @classmethod
+    def validate_due_date_timezone(
+        cls,
+        value: datetime | None,
+    ) -> datetime | None:
+        if value is not None and value.utcoffset() is None:
+            raise ValueError("due_date must include a timezone")
+
+        return value
+
 
 class TaskResponse(BaseSchema):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    project_id: UUID
+    created_by: UUID
+    assignee_id: UUID | None
     title: str
     description: str | None
     status: TaskStatus
     priority: TaskPriority
+    due_date: datetime | None
     created_at: datetime

@@ -3,7 +3,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.enums import TaskPriority, TaskStatus
+from app.domain.enums import TaskPriority, TaskStatus, WorkspaceRole
 from app.models.task import Task
 from app.repositories.base import BaseRepository
 from app.repositories.sqlalchemy_task import SQLAlchemyTaskRepository
@@ -17,6 +17,12 @@ async def test_create_and_get_task(
     project_id, user_id = task_context
 
     repository = SQLAlchemyTaskRepository(db_session)
+
+    user = await repository.get_user(user_id)
+
+    assert user is not None
+    assert user.id == user_id
+    assert user.is_active
 
     task = await repository.create_task(
         project_id=project_id,
@@ -119,3 +125,42 @@ async def test_base_repository_get_by_id(
 
     assert saved_task is not None
     assert saved_task.title == "Test Generic Repository"
+
+
+@pytest.mark.anyio
+async def test_get_project_and_workspace_membership(
+    db_session: AsyncSession,
+    task_context: tuple[UUID, UUID],
+) -> None:
+    project_id, user_id = task_context
+
+    repository = SQLAlchemyTaskRepository(db_session)
+
+    project = await repository.get_project(project_id)
+
+    membership = await repository.get_workspace_membership(
+        project_id,
+        user_id,
+    )
+
+    outsider_membership = await repository.get_workspace_membership(
+        project_id,
+        UUID("00000000-0000-0000-0000-000000000001"),
+    )
+
+    assert project is not None
+    assert project.id == project_id
+
+    assert membership is not None
+    assert membership.user_id == user_id
+    assert membership.role == WorkspaceRole.OWNER
+
+    assert outsider_membership is None
+
+    assert await repository.project_exists(project_id)
+    assert await repository.user_exists(user_id)
+
+    assert (
+        await repository.get_project(UUID("00000000-0000-0000-0000-000000000001"))
+        is None
+    )

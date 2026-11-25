@@ -10,6 +10,7 @@ from app.domain.pagination import PaginatedResult
 from app.models.project import Project
 from app.models.task import Task
 from app.models.user import User
+from app.models.workspace_member import WorkspaceMember
 from app.repositories.base import BaseRepository
 
 
@@ -17,13 +18,41 @@ class SQLAlchemyTaskRepository(BaseRepository[Task]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, Task)
 
+    async def get_project(
+        self,
+        project_id: UUID,
+    ) -> Project | None:
+        return await self.session.get(Project, project_id)
+
     async def project_exists(self, project_id: UUID) -> bool:
-        project = await self.session.get(Project, project_id)
-        return project is not None
+        return await self.get_project(project_id) is not None
+
+    async def get_user(self, user_id: UUID) -> User | None:
+        return await self.session.get(User, user_id)
 
     async def user_exists(self, user_id: UUID) -> bool:
-        user = await self.session.get(User, user_id)
-        return user is not None
+        return await self.get_user(user_id) is not None
+
+    async def get_workspace_membership(
+        self,
+        project_id: UUID,
+        user_id: UUID,
+    ) -> WorkspaceMember | None:
+        statement = (
+            select(WorkspaceMember)
+            .join(
+                Project,
+                Project.workspace_id == WorkspaceMember.workspace_id,
+            )
+            .where(
+                Project.id == project_id,
+                WorkspaceMember.user_id == user_id,
+            )
+        )
+
+        result = await self.session.scalars(statement)
+
+        return result.one_or_none()
 
     async def create_task(
         self,

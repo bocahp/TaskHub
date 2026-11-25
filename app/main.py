@@ -11,7 +11,6 @@ from app.core.exceptions import (
     UnauthorizedException,
 )
 from app.db.session import engine
-from app.repositories.task import InMemoryTaskRepository
 from app.routers.auth import router as auth_router
 from app.routers.database import router as database_router
 from app.routers.health import router as health_router
@@ -32,8 +31,6 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
-
-app.state.task_repository = InMemoryTaskRepository()
 
 app.include_router(health_router)
 app.include_router(auth_router)
