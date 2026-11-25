@@ -1,28 +1,19 @@
-from typing import Annotated, cast
+from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends
 
-from app.repositories.task import TaskRepository
-from app.services.task import TaskService
-
-
-def get_task_repository(request: Request) -> TaskRepository:
-    return cast(
-        TaskRepository,
-        request.app.state.task_repository,
-    )
+from app.dependencies.database import DbSession
+from app.repositories.sqlalchemy_task import SQLAlchemyTaskRepository
+from app.services.sqlalchemy_task import SQLAlchemyTaskService
 
 
-def get_task_service(
-    repository: Annotated[
-        TaskRepository,
-        Depends(get_task_repository),
-    ],
-) -> TaskService:
-    return TaskService(repository)
+def get_task_service(session: DbSession) -> SQLAlchemyTaskService:
+    repository = SQLAlchemyTaskRepository(session)
+
+    return SQLAlchemyTaskService(repository)
 
 
 TaskServiceDep = Annotated[
-    TaskService,
+    SQLAlchemyTaskService,
     Depends(get_task_service),
 ]

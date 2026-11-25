@@ -4,14 +4,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.core.exceptions import (
-    ConflictException,
-    ForbiddenException,
-    NotFoundException,
-    UnauthorizedException,
-)
+from app.core.exceptions import AppException
 from app.db.session import engine
-from app.repositories.task import InMemoryTaskRepository
 from app.routers.auth import router as auth_router
 from app.routers.database import router as database_router
 from app.routers.health import router as health_router
@@ -33,8 +27,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.state.task_repository = InMemoryTaskRepository()
-
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(users_router)
@@ -43,46 +35,15 @@ app.include_router(tasks_router)
 app.include_router(database_router)
 
 
-@app.exception_handler(NotFoundException)
-async def handle_not_found(
+@app.exception_handler(AppException)
+async def handle_app_exception(
     request: Request,
-    exc: NotFoundException,
+    exc: AppException,
 ) -> JSONResponse:
+    headers = {"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else None
+
     return JSONResponse(
-        status_code=404,
+        status_code=exc.status_code,
         content={"detail": exc.message},
-    )
-
-
-@app.exception_handler(ForbiddenException)
-async def handle_forbidden(
-    request: Request,
-    exc: ForbiddenException,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=403,
-        content={"detail": exc.message},
-    )
-
-
-@app.exception_handler(ConflictException)
-async def handle_conflict(
-    request: Request,
-    exc: ConflictException,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": exc.message},
-    )
-
-
-@app.exception_handler(UnauthorizedException)
-async def handle_unauthorized(
-    request: Request,
-    exc: UnauthorizedException,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=401,
-        content={"detail": exc.message},
-        headers={"WWW-Authenticate": "Bearer"},
+        headers=headers,
     )

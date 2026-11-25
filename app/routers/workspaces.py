@@ -1,13 +1,16 @@
-from uuid import UUID
-
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Response, status
 
 from app.dependencies.auth import CurrentUser
+from app.dependencies.ids import UserId, WorkspaceId
+from app.dependencies.pagination import PaginationDep
 from app.dependencies.workspace import WorkspaceServiceDep
+from app.domain.pagination import PaginatedResult
 from app.models.workspace import Workspace
 from app.schemas.workspace import (
     WorkspaceCreate,
+    WorkspaceListResponse,
     WorkspaceMemberCreate,
+    WorkspaceMemberListResponse,
     WorkspaceMemberResponse,
     WorkspaceMemberRoleUpdate,
     WorkspaceResponse,
@@ -38,18 +41,16 @@ async def create_workspace(
 
 @router.get(
     "",
-    response_model=list[WorkspaceResponse],
+    response_model=WorkspaceListResponse,
 )
 async def list_workspaces(
     current_user: CurrentUser,
     service: WorkspaceServiceDep,
-    offset: int = Query(default=0, ge=0),
-    limit: int = Query(default=20, ge=1, le=100),
-) -> list[Workspace]:
+    pagination: PaginationDep,
+) -> PaginatedResult[Workspace]:
     return await service.list_workspaces(
         current_user.id,
-        offset=offset,
-        limit=limit,
+        pagination=pagination,
     )
 
 
@@ -58,7 +59,7 @@ async def list_workspaces(
     response_model=WorkspaceResponse,
 )
 async def get_workspace(
-    workspace_id: UUID,
+    workspace_id: WorkspaceId,
     current_user: CurrentUser,
     service: WorkspaceServiceDep,
 ) -> Workspace:
@@ -73,7 +74,7 @@ async def get_workspace(
     response_model=WorkspaceResponse,
 )
 async def update_workspace(
-    workspace_id: UUID,
+    workspace_id: WorkspaceId,
     payload: WorkspaceUpdate,
     current_user: CurrentUser,
     service: WorkspaceServiceDep,
@@ -90,7 +91,7 @@ async def update_workspace(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def delete_workspace(
-    workspace_id: UUID,
+    workspace_id: WorkspaceId,
     current_user: CurrentUser,
     service: WorkspaceServiceDep,
 ) -> Response:
@@ -104,27 +105,34 @@ async def delete_workspace(
 
 @router.get(
     "/{workspace_id}/members",
-    response_model=list[WorkspaceMemberResponse],
+    response_model=WorkspaceMemberListResponse,
 )
 async def list_workspace_members(
-    workspace_id: UUID,
+    workspace_id: WorkspaceId,
     current_user: CurrentUser,
     service: WorkspaceServiceDep,
-) -> list[WorkspaceMemberResponse]:
+    pagination: PaginationDep,
+) -> WorkspaceMemberListResponse:
     members = await service.list_members(
         workspace_id,
         current_user.id,
+        pagination=pagination,
     )
 
-    return [
-        WorkspaceMemberResponse(
-            user_id=user.id,
-            email=user.email,
-            full_name=user.full_name,
-            role=membership.role,
-        )
-        for membership, user in members
-    ]
+    return WorkspaceMemberListResponse(
+        items=[
+            WorkspaceMemberResponse(
+                user_id=user.id,
+                email=user.email,
+                full_name=user.full_name,
+                role=membership.role,
+            )
+            for membership, user in members.items
+        ],
+        total=members.total,
+        page=members.page,
+        limit=members.limit,
+    )
 
 
 @router.post(
@@ -133,7 +141,7 @@ async def list_workspace_members(
     status_code=status.HTTP_201_CREATED,
 )
 async def add_workspace_member(
-    workspace_id: UUID,
+    workspace_id: WorkspaceId,
     payload: WorkspaceMemberCreate,
     current_user: CurrentUser,
     service: WorkspaceServiceDep,
@@ -158,8 +166,8 @@ async def add_workspace_member(
     response_model=WorkspaceMemberResponse,
 )
 async def update_workspace_member_role(
-    workspace_id: UUID,
-    user_id: UUID,
+    workspace_id: WorkspaceId,
+    user_id: UserId,
     payload: WorkspaceMemberRoleUpdate,
     current_user: CurrentUser,
     service: WorkspaceServiceDep,
@@ -184,8 +192,8 @@ async def update_workspace_member_role(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def remove_workspace_member(
-    workspace_id: UUID,
-    user_id: UUID,
+    workspace_id: WorkspaceId,
+    user_id: UserId,
     current_user: CurrentUser,
     service: WorkspaceServiceDep,
 ) -> Response:

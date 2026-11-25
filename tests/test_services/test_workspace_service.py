@@ -9,6 +9,7 @@ from app.core.exceptions import (
     NotFoundException,
 )
 from app.domain.enums import WorkspaceRole
+from app.domain.pagination import PaginationParams
 from app.models.user import User
 from app.repositories.sqlalchemy_user import SQLAlchemyUserRepository
 from app.repositories.sqlalchemy_workspace import (
@@ -105,12 +106,26 @@ async def test_list_workspaces_returns_only_user_memberships(
         owner_id=second_user_id,
     )
 
-    workspaces = await service.list_workspaces(first_user_id)
+    pagination = PaginationParams(page=1, limit=20)
 
-    assert len(workspaces) == 1
-    assert workspaces[0].id == first_workspace_id
+    workspaces = await service.list_workspaces(
+        first_user_id,
+        pagination=pagination,
+    )
 
-    assert await service.list_workspaces(uuid4()) == []
+    assert len(workspaces.items) == 1
+    assert workspaces.items[0].id == first_workspace_id
+    assert workspaces.total == 1
+    assert workspaces.page == 1
+    assert workspaces.limit == 20
+
+    empty_result = await service.list_workspaces(
+        uuid4(),
+        pagination=pagination,
+    )
+
+    assert empty_result.items == []
+    assert empty_result.total == 0
 
 
 @pytest.mark.anyio
@@ -149,11 +164,13 @@ async def test_workspace_access_requires_membership(
 
     assert member_workspace.id == workspace_id
 
-    with pytest.raises(ForbiddenException):
+    with pytest.raises(NotFoundException) as outsider_error:
         await service.get_workspace(workspace_id, outsider_id)
 
-    with pytest.raises(NotFoundException):
+    with pytest.raises(NotFoundException) as missing_error:
         await service.get_workspace(uuid4(), owner_id)
+
+    assert outsider_error.value.message == missing_error.value.message
 
 
 @pytest.mark.anyio

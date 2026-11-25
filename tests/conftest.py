@@ -1,29 +1,15 @@
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 from uuid import UUID, uuid4
 
 import pytest
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.core.config import settings
-from app.dependencies.task import get_task_repository
+from app.db.session import get_db
 from app.domain.enums import WorkspaceRole
 from app.main import app
 from app.models import Project, User, Workspace, WorkspaceMember
-from app.repositories.task import InMemoryTaskRepository
-
-
-@pytest.fixture
-def client() -> Iterator[TestClient]:
-    repository = InMemoryTaskRepository()
-
-    app.dependency_overrides[get_task_repository] = lambda: repository
-
-    try:
-        with TestClient(app) as test_client:
-            yield test_client
-    finally:
-        app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -58,6 +44,30 @@ async def db_session(anyio_backend: str) -> AsyncIterator[AsyncSession]:
                 await transaction.rollback()
     finally:
         await engine.dispose()
+
+
+@pytest.fixture
+async def task_client(
+    db_session: AsyncSession,
+) -> AsyncIterator[AsyncClient]:
+    previous_overrides = app.dependency_overrides.copy()
+
+    async def override_get_db() -> AsyncIterator[AsyncSession]:
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    transport = ASGITransport(app=app)
+
+    try:
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://test",
+        ) as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(previous_overrides)
 
 
 @pytest.fixture

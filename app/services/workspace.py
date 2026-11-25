@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.constants.messages import (
     DATABASE_CONFLICT,
     USER_NOT_FOUND,
-    WORKSPACE_ACCESS_FORBIDDEN,
     WORKSPACE_MEMBER_ALREADY_EXISTS,
     WORKSPACE_MEMBER_INACTIVE,
     WORKSPACE_MEMBER_NOT_FOUND,
@@ -22,6 +21,7 @@ from app.core.exceptions import (
     NotFoundException,
 )
 from app.domain.enums import WorkspaceRole
+from app.domain.pagination import PaginatedResult, PaginationParams
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
@@ -93,7 +93,7 @@ class SQLAlchemyWorkspaceService:
         )
 
         if membership is None:
-            raise ForbiddenException(WORKSPACE_ACCESS_FORBIDDEN)
+            raise NotFoundException(WORKSPACE_NOT_FOUND)
 
         return membership
 
@@ -138,13 +138,11 @@ class SQLAlchemyWorkspaceService:
         self,
         user_id: UUID,
         *,
-        offset: int = 0,
-        limit: int = 20,
-    ) -> list[Workspace]:
-        return await self.workspace_repository.list_for_user(
+        pagination: PaginationParams,
+    ) -> PaginatedResult[Workspace]:
+        return await self.workspace_repository.paginate_for_user(
             user_id,
-            offset=offset,
-            limit=limit,
+            pagination=pagination,
         )
 
     async def get_workspace(
@@ -203,7 +201,9 @@ class SQLAlchemyWorkspaceService:
         self,
         workspace_id: UUID,
         user_id: UUID,
-    ) -> list[tuple[WorkspaceMember, User]]:
+        *,
+        pagination: PaginationParams,
+    ) -> PaginatedResult[tuple[WorkspaceMember, User]]:
         workspace = await self._get_workspace(workspace_id)
 
         await self._require_membership(
@@ -211,8 +211,9 @@ class SQLAlchemyWorkspaceService:
             user_id,
         )
 
-        return await self.workspace_repository.list_members(
+        return await self.workspace_repository.paginate_members(
             workspace.id,
+            pagination=pagination,
         )
 
     async def add_member(

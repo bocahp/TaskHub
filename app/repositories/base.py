@@ -1,4 +1,4 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
@@ -6,9 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.constants.database import DEFAULT_PAGE, DEFAULT_PAGE_SIZE
 from app.db.base import Base
-from app.domain.pagination import PaginatedResult
+from app.domain.pagination import PaginatedResult, PaginationParams
 
 
 class BaseRepository[ModelT: Base]:
@@ -22,9 +21,9 @@ class BaseRepository[ModelT: Base]:
 
     async def create(
         self,
-        values: Mapping[str, object],
+        values: dict[str, object],
     ) -> ModelT:
-        entity = self.model(**dict(values))
+        entity = self.model(**values)
 
         self.session.add(entity)
 
@@ -48,11 +47,17 @@ class BaseRepository[ModelT: Base]:
     async def list_all(
         self,
         *,
-        offset: int = 0,
-        limit: int = DEFAULT_PAGE_SIZE,
+        pagination: PaginationParams,
         order_by: Sequence[ColumnElement[Any]],
+        filters: Sequence[ColumnElement[bool]] = (),
     ) -> list[ModelT]:
-        statement = select(self.model).order_by(*order_by).offset(offset).limit(limit)
+        statement = (
+            select(self.model)
+            .where(*filters)
+            .order_by(*order_by)
+            .offset(pagination.offset)
+            .limit(pagination.limit)
+        )
 
         result = await self.session.scalars(statement)
 
@@ -61,25 +66,25 @@ class BaseRepository[ModelT: Base]:
     async def paginate(
         self,
         *,
-        page: int = DEFAULT_PAGE,
-        limit: int = DEFAULT_PAGE_SIZE,
+        pagination: PaginationParams,
         order_by: Sequence[ColumnElement[Any]],
+        filters: Sequence[ColumnElement[bool]] = (),
     ) -> PaginatedResult[ModelT]:
-        count_statement = select(func.count()).select_from(self.model)
+        count_statement = select(func.count()).select_from(self.model).where(*filters)
 
         total = await self.session.scalar(count_statement)
 
         items = await self.list_all(
-            offset=(page - 1) * limit,
-            limit=limit,
+            pagination=pagination,
             order_by=order_by,
+            filters=filters,
         )
 
         return PaginatedResult(
             items=items,
             total=total or 0,
-            page=page,
-            limit=limit,
+            page=pagination.page,
+            limit=pagination.limit,
         )
 
     async def update(

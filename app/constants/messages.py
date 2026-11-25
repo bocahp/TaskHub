@@ -21,3 +21,10 @@ WORKSPACE_MEMBER_INACTIVE = "Cannot add an inactive user"
 WORKSPACE_OWNER_PROTECTED = (
     "The workspace owner cannot be removed or have their role changed"
 )
+TASK_MODIFICATION_FORBIDDEN = (
+    "You do not have permission to modify tasks in this workspace"
+)
+PROJECT_ARCHIVED = "Cannot modify tasks in an archived project"
+TASK_ASSIGNEE_NOT_MEMBER = "The assignee must be a member of the project's workspace"
+
+DATABASE_UNAVAILABLE = "Database unavailable"
