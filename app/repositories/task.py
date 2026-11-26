@@ -9,6 +9,7 @@ class TaskRepository(Protocol):
     async def create(
         self,
         *,
+        created_by: UUID,
         title: str,
         description: str | None,
         status: TaskStatus,
@@ -18,6 +19,11 @@ class TaskRepository(Protocol):
     async def get_by_id(self, task_id: UUID) -> TaskEntity | None: ...
 
     async def list_all(self) -> list[TaskEntity]: ...
+
+    async def list_by_creator(
+        self,
+        created_by: UUID,
+    ) -> list[TaskEntity]: ...
 
     async def update(self, task: TaskEntity) -> TaskEntity: ...
 
@@ -31,6 +37,7 @@ class InMemoryTaskRepository:
     async def create(
         self,
         *,
+        created_by: UUID,
         title: str,
         description: str | None,
         status: TaskStatus,
@@ -38,6 +45,7 @@ class InMemoryTaskRepository:
     ) -> TaskEntity:
         task = TaskEntity(
             id=uuid4(),
+            created_by=created_by,
             title=title,
             description=description,
             status=status,
@@ -54,6 +62,12 @@ class InMemoryTaskRepository:
 
     async def list_all(self) -> list[TaskEntity]:
         return list(self._tasks.values())
+
+    async def list_by_creator(
+        self,
+        created_by: UUID,
+    ) -> list[TaskEntity]:
+        return [task for task in self._tasks.values() if task.created_by == created_by]
 
     async def update(self, task: TaskEntity) -> TaskEntity:
         self._tasks[task.id] = task

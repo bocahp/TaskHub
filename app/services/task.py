@@ -2,9 +2,13 @@ from collections.abc import Mapping
 from typing import cast
 from uuid import UUID
 
-from app.constants.messages import TASK_NOT_FOUND
-from app.core.exceptions import NotFoundException
-from app.domain.task import TaskEntity, TaskPriority, TaskStatus
+from app.constants.messages import (
+    TASK_ACCESS_FORBIDDEN,
+    TASK_NOT_FOUND,
+)
+from app.core.exceptions import ForbiddenException, NotFoundException
+from app.domain.enums import TaskPriority, TaskStatus, UserRole
+from app.domain.task import TaskEntity
 from app.repositories.task import TaskRepository
 
 
@@ -12,15 +16,27 @@ class TaskService:
     def __init__(self, repository: TaskRepository) -> None:
         self.repository = repository
 
+    @staticmethod
+    def _ensure_task_access(
+        task: TaskEntity,
+        *,
+        current_user_id: UUID,
+        current_user_role: UserRole,
+    ) -> None:
+        if current_user_role != UserRole.ADMIN and task.created_by != current_user_id:
+            raise ForbiddenException(TASK_ACCESS_FORBIDDEN)
+
     async def create_task(
         self,
         *,
+        created_by: UUID,
         title: str,
         description: str | None,
         status: TaskStatus,
         priority: TaskPriority,
     ) -> TaskEntity:
         return await self.repository.create(
+            created_by=created_by,
             title=title,
             description=description,
             status=status,
@@ -32,16 +48,33 @@ class TaskService:
         *,
         skip: int,
         limit: int,
+        current_user_id: UUID,
+        current_user_role: UserRole,
     ) -> list[TaskEntity]:
-        tasks = await self.repository.list_all()
+        if current_user_role == UserRole.ADMIN:
+            tasks = await self.repository.list_all()
+        else:
+            tasks = await self.repository.list_by_creator(current_user_id)
 
         return tasks[skip : skip + limit]
 
-    async def get_task(self, task_id: UUID) -> TaskEntity:
+    async def get_task(
+        self,
+        task_id: UUID,
+        *,
+        current_user_id: UUID,
+        current_user_role: UserRole,
+    ) -> TaskEntity:
         task = await self.repository.get_by_id(task_id)
 
         if task is None:
             raise NotFoundException(TASK_NOT_FOUND)
+
+        self._ensure_task_access(
+            task,
+            current_user_id=current_user_id,
+            current_user_role=current_user_role,
+        )
 
         return task
 
@@ -49,8 +82,15 @@ class TaskService:
         self,
         task_id: UUID,
         changes: Mapping[str, object],
+        *,
+        current_user_id: UUID,
+        current_user_role: UserRole,
     ) -> TaskEntity:
-        task = await self.get_task(task_id)
+        task = await self.get_task(
+            task_id,
+            current_user_id=current_user_id,
+            current_user_role=current_user_role,
+        )
 
         if "title" in changes:
             task.title = cast(str, changes["title"])
@@ -69,7 +109,17 @@ class TaskService:
 
         return await self.repository.update(task)
 
-    async def delete_task(self, task_id: UUID) -> None:
-        task = await self.get_task(task_id)
+    async def delete_task(
+        self,
+        task_id: UUID,
+        *,
+        current_user_id: UUID,
+        current_user_role: UserRole,
+    ) -> None:
+        task = await self.get_task(
+            task_id,
+            current_user_id=current_user_id,
+            current_user_role=current_user_role,
+        )
 
         await self.repository.delete(task.id)

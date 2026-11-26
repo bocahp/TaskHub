@@ -8,3 +8,15 @@ class ConflictException(Exception):
     def __init__(self, message: str) -> None:
         self.message = message
         super().__init__(message)
+
+
+class UnauthorizedException(Exception):
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+class ForbiddenException(Exception):
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)

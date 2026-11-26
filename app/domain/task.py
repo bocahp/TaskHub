@@ -8,6 +8,7 @@ from app.domain.enums import TaskPriority, TaskStatus
 @dataclass(slots=True)
 class TaskEntity:
     id: UUID
+    created_by: UUID
     title: str
     description: str | None
     status: TaskStatus
