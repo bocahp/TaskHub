@@ -1,4 +1,3 @@
-
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
@@ -14,6 +13,7 @@ from app.constants.auth import (
 from app.core.config import settings
 
 password_hash = PasswordHash.recommended()
+DUMMY_PASSWORD_HASH = password_hash.hash("taskhub-dummy-password")
 
 
 def hash_password(password: str) -> str:
@@ -31,6 +31,7 @@ def _create_token(
     user_id: UUID,
     token_type: str,
     expires_delta: timedelta,
+    token_version: int | None = None,
 ) -> tuple[str, UUID, datetime]:
     issued_at = datetime.now(UTC)
     expires_at = issued_at + expires_delta
@@ -44,6 +45,9 @@ def _create_token(
         "exp": expires_at,
     }
 
+    if token_version is not None:
+        payload["ver"] = token_version
+
     token = jwt.encode(
         payload,
         settings.jwt_secret_key.get_secret_value(),
@@ -53,13 +57,17 @@ def _create_token(
     return token, token_id, expires_at
 
 
-def create_access_token(user_id: UUID) -> str:
+def create_access_token(
+    user_id: UUID,
+    token_version: int,
+) -> str:
     token, _, _ = _create_token(
         user_id=user_id,
         token_type=ACCESS_TOKEN_TYPE,
         expires_delta=timedelta(
             minutes=settings.access_token_expire_minutes,
         ),
+        token_version=token_version,
     )
 
     return token

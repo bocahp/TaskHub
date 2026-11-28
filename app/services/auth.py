@@ -16,6 +16,7 @@ from app.constants.messages import (
 )
 from app.core.exceptions import ConflictException, UnauthorizedException
 from app.core.security import (
+    DUMMY_PASSWORD_HASH,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -104,22 +105,26 @@ class AuthService:
             email.strip().lower(),
         )
 
-        if user is None:
-            raise UnauthorizedException(INVALID_CREDENTIALS)
+        hashed_password = (
+            user.hashed_password if user is not None else DUMMY_PASSWORD_HASH
+        )
 
         password_is_valid = await run_in_threadpool(
             verify_password,
             password,
-            user.hashed_password,
+            hashed_password,
         )
 
-        if not password_is_valid:
+        if user is None or not password_is_valid:
             raise UnauthorizedException(INVALID_CREDENTIALS)
 
         if not user.is_active:
             raise UnauthorizedException(ACCOUNT_INACTIVE)
 
-        access_token = create_access_token(user.id)
+        access_token = create_access_token(
+            user.id,
+            user.token_version,
+        )
 
         refresh_token, jti, expires_at = create_refresh_token(user.id)
 
@@ -174,7 +179,10 @@ class AuthService:
 
                 await self.refresh_token_repository.revoke(stored_token)
 
-                new_access_token = create_access_token(user.id)
+                new_access_token = create_access_token(
+                    user.id,
+                    user.token_version,
+                )
 
                 new_refresh_token, new_jti, new_expires_at = create_refresh_token(
                     user.id

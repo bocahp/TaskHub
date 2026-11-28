@@ -1,6 +1,5 @@
-
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -104,6 +103,7 @@ async def test_change_password_revokes_all_refresh_tokens(
 
     assert not verify_password("OldPassword123!", user.hashed_password)
     assert verify_password("NewPassword123!", user.hashed_password)
+    assert user.token_version == 1
 
     first_token = await refresh_repository.get_by_jti(first_jti)
     second_token = await refresh_repository.get_by_jti(second_jti)
@@ -113,3 +113,69 @@ async def test_change_password_revokes_all_refresh_tokens(
 
     assert second_token is not None
     assert second_token.revoked_at is not None
+
+
+@pytest.mark.anyio
+async def test_change_password_rolls_back_when_refresh_revocation_fails(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, user = create_user_service(db_session)
+    await db_session.flush()
+
+    refresh_repository = service.refresh_token_repository
+
+    first_jti = uuid4()
+    second_jti = uuid4()
+    expires_at = datetime.now(UTC) + timedelta(days=7)
+
+    await refresh_repository.create_refresh_token(
+        user_id=user.id,
+        jti=first_jti,
+        expires_at=expires_at,
+    )
+
+    await refresh_repository.create_refresh_token(
+        user_id=user.id,
+        jti=second_jti,
+        expires_at=expires_at,
+    )
+
+    await db_session.commit()
+
+    original_revoke = refresh_repository.revoke_all_for_user
+
+    async def revoke_then_fail(user_id: UUID) -> int:
+        await original_revoke(user_id)
+        raise RuntimeError("Simulated refresh-token revocation failure")
+
+    monkeypatch.setattr(
+        refresh_repository,
+        "revoke_all_for_user",
+        revoke_then_fail,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Simulated refresh-token revocation failure",
+    ):
+        await service.change_password(
+            user,
+            current_password="OldPassword123!",
+            new_password="NewPassword123!",
+        )
+
+    await db_session.refresh(user)
+
+    assert user.token_version == 0
+    assert verify_password("OldPassword123!", user.hashed_password)
+    assert not verify_password("NewPassword123!", user.hashed_password)
+
+    first_token = await refresh_repository.get_by_jti(first_jti)
+    second_token = await refresh_repository.get_by_jti(second_jti)
+
+    assert first_token is not None
+    assert first_token.revoked_at is None
+
+    assert second_token is not None
+    assert second_token.revoked_at is None

@@ -1,4 +1,3 @@
-
 from typing import Annotated
 from uuid import UUID
 
@@ -49,6 +48,11 @@ async def get_current_user(
         if payload.get("type") != ACCESS_TOKEN_TYPE:
             raise UnauthorizedException(INVALID_TOKEN)
 
+        token_version = payload.get("ver")
+
+        if not isinstance(token_version, int) or isinstance(token_version, bool):
+            raise UnauthorizedException(INVALID_TOKEN)
+
         user_id = UUID(str(payload["sub"]))
 
     except (jwt.InvalidTokenError, KeyError, TypeError, ValueError) as exc:
@@ -57,7 +61,7 @@ async def get_current_user(
     user_repository = SQLAlchemyUserRepository(session)
     user = await user_repository.get_by_id(user_id)
 
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or user.token_version != token_version:
         raise UnauthorizedException(INVALID_TOKEN)
 
     return user

@@ -1,3 +1,5 @@
+import secrets
+
 import pytest
 from pydantic import ValidationError
 
@@ -13,7 +15,7 @@ def create_settings(secret: str) -> Settings:
 
 
 def test_settings_accepts_valid_jwt_secret() -> None:
-    secret = "a" * 32
+    secret = secrets.token_urlsafe(32)
 
     settings = create_settings(secret)
 
@@ -28,3 +30,13 @@ def test_settings_rejects_short_jwt_secret() -> None:
 def test_settings_rejects_empty_jwt_secret() -> None:
     with pytest.raises(ValidationError):
         create_settings("")
+
+
+def test_settings_rejects_low_variety_jwt_secret() -> None:
+    with pytest.raises(ValidationError):
+        create_settings("a" * 32)
+
+
+def test_settings_rejects_placeholder_jwt_secret() -> None:
+    with pytest.raises(ValidationError):
+        create_settings("replace-with-a-generated-secret-before-running")

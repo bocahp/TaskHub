@@ -1,4 +1,3 @@
-
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -71,6 +70,7 @@ class UserService:
 
         try:
             user.hashed_password = new_hashed_password
+            user.token_version += 1
 
             await self.user_repository.update(user)
 

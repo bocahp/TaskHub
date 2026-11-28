@@ -9,7 +9,11 @@ from app.constants.messages import (
     INVALID_REFRESH_TOKEN,
 )
 from app.core.exceptions import ConflictException, UnauthorizedException
-from app.core.security import decode_token, verify_password
+from app.core.security import (
+    DUMMY_PASSWORD_HASH,
+    decode_token,
+    verify_password,
+)
 from app.domain.enums import UserRole
 from app.repositories.sqlalchemy_refresh_token import (
     SQLAlchemyRefreshTokenRepository,
@@ -101,6 +105,7 @@ async def test_login_creates_access_and_refresh_tokens(
 
     assert access_data["sub"] == str(user.id)
     assert access_data["type"] == "access"
+    assert access_data["ver"] == user.token_version
 
     assert refresh_data["sub"] == str(user.id)
     assert refresh_data["type"] == "refresh"
@@ -185,6 +190,7 @@ async def test_refresh_rotates_token_and_rejects_old_token(
 
     assert new_access_data["sub"] == str(user.id)
     assert new_access_data["type"] == "access"
+    assert new_access_data["ver"] == user.token_version
     assert new_refresh_data["sub"] == str(user.id)
     assert new_refresh_data["type"] == "refresh"
 
@@ -319,3 +325,33 @@ async def test_reusing_revoked_refresh_token_revokes_all_user_sessions(
 
     assert rotated_record is not None
     assert rotated_record.revoked_at is not None
+
+
+@pytest.mark.anyio
+async def test_login_verifies_dummy_hash_for_unknown_email(
+    db_session: AsyncSession,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _, _ = create_auth_service(db_session)
+    verified_hashes: list[str] = []
+
+    def fake_verify_password(
+        plain_password: str,
+        hashed_password: str,
+    ) -> bool:
+        verified_hashes.append(hashed_password)
+        return False
+
+    monkeypatch.setattr(
+        "app.services.auth.verify_password",
+        fake_verify_password,
+    )
+
+    with pytest.raises(UnauthorizedException) as exc_info:
+        await service.login(
+            email="unknown@example.com",
+            password="TestPassword123!",
+        )
+
+    assert exc_info.value.message == INVALID_CREDENTIALS
+    assert verified_hashes == [DUMMY_PASSWORD_HASH]
